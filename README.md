@@ -13,8 +13,8 @@ This repo contains the **advanced analytics layer** — the spatial clustering a
 | Domain | DBSCAN | SARIMAX | Cortex Narrative |
 |--------|--------|---------|------------------|
 | **Crime** | ✅ Two-pass clustering | ✅ 12-month forecast | ✅ Safety narratives |
-| **Grocery** | ✅ Store access clustering | — | ✅ Access narratives |
-| **Healthcare** | ✅ Facility access clustering | — | ✅ Access narratives |
+| **Grocery** | ✅ Store access clustering | — | ✅ Food access narratives |
+| **Healthcare** | ✅ Facility density clustering | — | ✅ Healthcare access narratives |
 
 These results feed into neighborhood scoring tables that rate all 51 locations on a 0–100 scale, with LLM-generated narrative summaries for each.
 
@@ -30,7 +30,9 @@ For crime, a **two-pass approach** is used:
 - **Pass 1** (eps ≈ 200m, min_samples = 50) → Broad hotspot regions
 - **Pass 2** (eps ≈ 75m, min_samples = 15) → Concentrated micro-clusters within hotspot regions
 
-Grocery and Healthcare use single-pass DBSCAN to map facility density and identify access gaps.
+Grocery uses single-pass DBSCAN with haversine distance (eps = 200m, min_samples = 3) — wider parameters than crime since stores are sparser than individual incidents.
+
+Healthcare uses spatial binning on lat/long grid cells to identify concentrated facility clusters vs. isolated facilities.
 
 ### SARIMAX — Time-Series Forecasting (Crime)
 
@@ -40,7 +42,9 @@ SARIMAX(1,1,1) × (1,1,1,12)
 
 Captures both **trend** (year-over-year normalization) and **seasonality** (summer peaks, winter dips) in Boston crime data. Produces 12-month rolling forecasts with 95% confidence intervals.
 
-### Safety Scoring — 6-Signal Weighted Formula
+---
+
+## 🔴 Crime Scoring — 6-Signal Weighted Formula
 
 ```
 Score = 100
@@ -54,6 +58,49 @@ Score = 100
 
 Grades: **EXCELLENT** ≥75 · **GOOD** ≥50 · **MODERATE** ≥25 · **HIGH CONCERN** <25
 
+**Output Tables (CRIME_ANALYSIS schema):**
+- `CA_CRIME_HOTSPOT_CLUSTERS` — Cluster centroids, density stats, top offenses
+- `CA_CRIME_CLUSTER_POINTS` — Individual incidents with cluster assignments
+- `CA_CRIME_FORECAST` — Monthly forecast with 95% CI
+- `CA_CRIME_SAFETY_NARRATIVE` — LLM-generated safety narrative per neighborhood
+
+---
+
+## 🟢 Grocery Scoring — 4-Tier Access Classification
+
+DBSCAN identifies dense store zones vs. isolated stores per neighborhood. Each neighborhood is classified into an access tier based on essential food source count (supermarkets, produce markets, meat/fish markets):
+
+- **HIGH_ACCESS** — 10+ essential food sources
+- **GOOD_ACCESS** — 6–10 essential food sources
+- **FAIR_ACCESS** — 3–5 essential food sources
+- **LOW_ACCESS** — ≤2 essential food sources
+
+Metrics include store type breakdown (supermarkets, convenience, specialty, pharmacies, farmers markets), clustered vs. isolated store percentages, and essential food source share.
+
+**Output Tables (GROCERY_ANALYSIS schema):**
+- `GA_GROCERY_HOTSPOT_CLUSTERS` — DBSCAN cluster stats + store type breakdown per neighborhood
+- `GA_GROCERY_NARRATIVE` — LLM-generated food access narrative per neighborhood
+
+---
+
+## 🔵 Healthcare Scoring — 4-Component Formula
+
+| Component | Max Points | What It Measures |
+|-----------|-----------|------------------|
+| Density Score | 35 | Facilities per square mile |
+| Core Care Score | 30 | Hospital + clinic share of total facilities |
+| Contact Quality Score | 20 | Percentage with valid phone numbers |
+| Diversity Score | 15 | Number of distinct facility type groups (out of 4) |
+
+Grades: **EXCELLENT** ≥75 · **GOOD** ≥50 · **MODERATE** ≥25 · **LIMITED** <25
+
+Facility types tracked: Inpatient/Hospital, Outpatient/Clinic, Public Health/Community, and Specialty/Other.
+
+**Output Tables (HEALTHCARE_ANALYSIS schema):**
+- `HA_HEALTHCARE_ACCESS_PROFILE` — Per-neighborhood scoring with facility breakdowns
+- `HA_HEALTHCARE_HOTSPOT_CLUSTERS` — Clustered vs. isolated facility percentages
+- `HA_HEALTHCARE_NARRATIVE` — LLM-generated healthcare access narrative per neighborhood
+
 ---
 
 ## 🏗️ Architecture
@@ -62,7 +109,7 @@ Grades: **EXCELLENT** ≥75 · **GOOD** ≥50 · **MODERATE** ≥25 · **HIGH CO
 
 ### Pipeline Flow
 
-Snowflake Marts → Python Scripts (DBSCAN / SARIMAX) → Snowflake CRIME_ANALYSIS Schema → Cortex LLM Narratives → Streamlit Dashboard
+Snowflake Marts → Python Scripts / dbt Models (DBSCAN / SARIMAX) → Analysis Schemas → Cortex LLM Narratives → Streamlit Dashboard
 
 ---
 
@@ -70,10 +117,33 @@ Snowflake Marts → Python Scripts (DBSCAN / SARIMAX) → Snowflake CRIME_ANALYS
 
 ```
 GenAI_DBSCAN_SARIMAX/
-├── airflow/       # Airflow DAGs — data ingestion for 4 crime sources
-├── dbt/           # dbt models — STG → INT → MRT transformation layers
-├── scripts/       # Python scripts — DBSCAN, SARIMAX, Cortex narratives
-├── streamlit/     # Unified Streamlit dashboard (Crime + Grocery + Healthcare)
+├── airflow/dags/
+│   ├── boston_api_to_s3.py
+│   ├── cambridge_api_to_s3_to_snowflake.py
+│   ├── district_mapping_to_s3_to_snowflake.py
+│   ├── grocery_unstructured_scrape_dag.py
+│   ├── healthcare_dataload_dag.py
+│   └── master_location_to_s3_to_snowflake.py
+│
+├── dbt/models/
+│   ├── intermediate/
+│   │   ├── INT_BOSTON_CRIME.sql
+│   │   ├── INT_BOSTON_GROCERY_STORES.sql
+│   │   └── INT_BOSTON_HEALTHCARE.sql
+│   └── marts/
+│       ├── MRT_BOSTON_CRIME.sql
+│       ├── MRT_BOSTON_GROCERY_STORES.sql
+│       └── MRT_BOSTON_HEALTHCARE.sql
+│
+├── scripts/
+│   ├── crime_hotspot_analysis.py       # Two-pass DBSCAN + SARIMAX + Cortex narratives
+│   ├── Grocery_analysis.py             # DBSCAN grocery clustering + Cortex narratives
+│   └── healthcare_analysis.sql         # Healthcare scoring + clustering + Cortex narratives
+│
+├── streamlit/
+│   ├── streamlit_app.py                # Unified dashboard (Crime + Grocery + Healthcare)
+│   └── environment.yml
+│
 ├── LICENSE
 └── README.md
 ```
@@ -96,12 +166,14 @@ GenAI_DBSCAN_SARIMAX/
 
 ## 🔄 Key Engineering Highlights
 
-- Implemented **two-pass DBSCAN** for multi-resolution hotspot detection (macro regions → micro-clusters)
-- Built **SARIMAX forecasting** with seasonal differencing (D=1, s=12) capturing Boston's annual crime patterns
-- Designed **two-track scoring architecture** — incident-level stats for Boston/Cambridge/Somerville, aggregate stats for 11 FBI cities — with proportionally redistributed signal weights
-- Solved **apples-to-apples comparison** by excluding LOW severity service calls from scoring denominators
-- Integrated **4 distinct crime data sources** (Analyze Boston, Cambridge Open Data, Somerville Socrata, FBI CDE API) into a unified pipeline
-- Generated **LLM-powered neighborhood narratives** via Snowflake Cortex with city-specific prompt templates
+- Implemented **two-pass DBSCAN** for multi-resolution crime hotspot detection (macro regions → micro-clusters)
+- Applied **DBSCAN with haversine distance** to grocery store locations for food desert identification
+- Built **spatial binning clustering** for healthcare facility density mapping
+- Designed **SARIMAX forecasting** with seasonal differencing (D=1, s=12) for crime trend prediction
+- Created **two-track crime scoring** — incident-level for Boston/Cambridge/Somerville, FBI aggregates for 11 Greater Boston cities — with redistributed signal weights
+- Built **4-component healthcare scoring** (density, core care, contact quality, diversity)
+- Built **4-tier grocery access classification** based on essential food source counts
+- Generated **LLM-powered narratives** via Snowflake Cortex across all three domains with city-specific prompts
 
 ---
 
@@ -122,7 +194,7 @@ GenAI_DBSCAN_SARIMAX/
 
 ## 🎯 Goal
 
-To add spatial intelligence and temporal forecasting to the NeighbourWise AI platform — transforming raw location data into actionable, explainable neighborhood insights powered by DBSCAN clustering, SARIMAX forecasting, and GenAI narratives.
+To add spatial intelligence and temporal forecasting to the NeighborWise AI platform — transforming raw location data into actionable, explainable neighborhood insights powered by DBSCAN clustering, SARIMAX forecasting, and GenAI narratives.
 
 ---
 
