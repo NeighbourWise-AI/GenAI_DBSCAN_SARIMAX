@@ -58,6 +58,7 @@ Grades: **EXCELLENT** ≥75 · **GOOD** ≥50 · **MODERATE** ≥25 · **HIGH CO
 
 ## 🏗️ Architecture
 
+![System Architecture](Architectures/DBSCAN + SARIMAX Architecture.png)
 
 ### Pipeline Flow
 
