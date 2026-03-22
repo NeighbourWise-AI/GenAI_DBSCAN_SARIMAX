@@ -1,8 +1,8 @@
-# NeighbourWise AI — GenAI DBSCAN & SARIMAX 📍
+# NeighborWise AI — GenAI DBSCAN & SARIMAX 📍
 
-## 🏙️ About NeighbourWise AI
+## 🏙️ About NeighborWise AI
 
-NeighbourWise AI is a **neighborhood intelligence platform** for the Greater Boston metro area. It helps people making relocation decisions by scoring and comparing 51 neighborhoods and cities across multiple livability dimensions — crime & safety, grocery access, healthcare availability, transit, schools, restaurants, and more.
+NeighborWise AI is a **neighborhood intelligence platform** for the Greater Boston metro area. It helps people making relocation decisions by scoring and comparing 51 neighborhoods and cities across multiple livability dimensions — crime & safety, grocery access, healthcare availability, transit, schools, restaurants, and more.
 
 The platform ingests data from public APIs and open data portals, transforms it through a Snowflake + dbt pipeline, and uses GenAI (Snowflake Cortex) to generate explainable, plain-English neighborhood recommendations.
 
